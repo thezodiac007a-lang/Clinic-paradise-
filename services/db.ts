@@ -123,5 +123,36 @@ export const db = {
     _saveSessions(sessions: Record<string, ChatSession>) {
       localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(sessions));
     }
+  },
+
+  // Admin / System utilities
+  admin: {
+    exportAllData(): string {
+      const users = localStorage.getItem(STORAGE_KEYS.USERS);
+      const sessions = localStorage.getItem(STORAGE_KEYS.SESSIONS);
+      const dump = {
+        users: users ? JSON.parse(users) : [],
+        sessions: sessions ? JSON.parse(sessions) : {},
+        timestamp: Date.now(),
+        version: '1.0'
+      };
+      return JSON.stringify(dump, null, 2);
+    },
+
+    importAllData(jsonString: string): void {
+      try {
+        const dump = JSON.parse(jsonString);
+        if (!dump.users || !dump.sessions) {
+          throw new Error("Invalid backup file format");
+        }
+        
+        localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(dump.users));
+        localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(dump.sessions));
+        
+      } catch (e) {
+        console.error("Import failed", e);
+        throw e;
+      }
+    }
   }
 };

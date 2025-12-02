@@ -1,7 +1,7 @@
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { User, Message } from '../types';
-import { X, User as UserIcon, Save, Trash2, Clock, Shield } from 'lucide-react';
+import { X, User as UserIcon, Save, Trash2, Clock, Shield, Download, Upload, FileJson, CheckCircle } from 'lucide-react';
 import { db } from '../services/db';
 
 interface ProfileModalProps {
@@ -24,6 +24,8 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   const [name, setName] = useState(user.name);
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [importStatus, setImportStatus] = useState<string>('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
 
@@ -38,6 +40,36 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
       alert("Failed to update profile");
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleExport = () => {
+    const data = db.admin.exportAllData();
+    const blob = new Blob([data], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `medichat_backup_${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      db.admin.importAllData(text);
+      setImportStatus('Data restored successfully! reloading...');
+      setTimeout(() => {
+        window.location.reload();
+      }, 1500);
+    } catch (error) {
+      console.error("Import failed", error);
+      setImportStatus('Error: Invalid backup file.');
     }
   };
 
@@ -60,7 +92,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
         </div>
 
         {/* Content */}
-        <div className="p-6 overflow-y-auto space-y-8">
+        <div className="p-6 overflow-y-auto space-y-8 scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-700">
           
           {/* Personal Info Section */}
           <section>
@@ -119,21 +151,73 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
 
           <div className="h-px bg-slate-100 dark:bg-slate-800" />
 
-          {/* Data Management Section */}
+          {/* Backup Section */}
           <section>
-            <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-4">
-              Data & History
+             <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-4">
+              Data Backup
+            </h3>
+            <div className="bg-slate-50 dark:bg-slate-800/50 rounded-xl p-4 border border-slate-100 dark:border-slate-800">
+              <div className="flex items-start gap-3 mb-4">
+                <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg text-indigo-600 dark:text-indigo-400">
+                  <FileJson size={20} />
+                </div>
+                <div>
+                  <h4 className="font-medium text-slate-900 dark:text-white">Export / Import</h4>
+                  <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                    Your data is stored locally. Export your backup if you switch devices.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={handleExport}
+                  className="flex items-center justify-center gap-2 py-2 px-3 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors text-sm font-medium"
+                >
+                  <Download size={16} />
+                  Export JSON
+                </button>
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex items-center justify-center gap-2 py-2 px-3 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors text-sm font-medium"
+                >
+                  <Upload size={16} />
+                  Import
+                </button>
+                <input 
+                  type="file" 
+                  ref={fileInputRef} 
+                  onChange={handleImport} 
+                  accept=".json" 
+                  className="hidden" 
+                />
+              </div>
+              {importStatus && (
+                <div className="mt-3 text-xs flex items-center gap-2 text-green-600 dark:text-green-400 font-medium animate-in fade-in">
+                  <CheckCircle size={12} />
+                  {importStatus}
+                </div>
+              )}
+            </div>
+          </section>
+
+          <div className="h-px bg-slate-100 dark:bg-slate-800" />
+
+          {/* Danger Zone */}
+          <section>
+            <h3 className="text-sm font-bold uppercase tracking-wider text-red-400 dark:text-red-500 mb-4 flex items-center gap-2">
+              Danger Zone
             </h3>
             
-            <div className="bg-slate-50 dark:bg-slate-800/50 rounded-xl p-4 border border-slate-100 dark:border-slate-800">
+            <div className="bg-red-50 dark:bg-red-900/10 rounded-xl p-4 border border-red-100 dark:border-red-900/30">
               <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 dark:text-blue-400">
+                <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center text-red-600 dark:text-red-400">
                   <Clock size={20} />
                 </div>
                 <div>
                   <h4 className="font-medium text-slate-900 dark:text-white">Active Session</h4>
                   <p className="text-sm text-slate-500 dark:text-slate-400">
-                    {messageCount} messages stored securely
+                    {messageCount} messages stored
                   </p>
                 </div>
               </div>
@@ -144,7 +228,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                     onClearHistory();
                   }
                 }}
-                className="w-full py-2.5 px-4 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/10 hover:border-red-200 dark:hover:border-red-900/30 transition-all text-sm font-medium flex items-center justify-center gap-2"
+                className="w-full py-2.5 px-4 rounded-lg bg-white dark:bg-slate-800 border border-red-200 dark:border-red-900/50 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all text-sm font-medium flex items-center justify-center gap-2"
               >
                 <Trash2 size={16} />
                 Clear Chat History
