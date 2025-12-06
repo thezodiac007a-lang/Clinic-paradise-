@@ -5,6 +5,11 @@ export enum Role {
   SYSTEM = 'system'
 }
 
+export interface Option {
+  label: string;
+  nextId: string;
+}
+
 export interface Message {
   id: string;
   role: Role;
@@ -12,6 +17,7 @@ export interface Message {
   timestamp: number;
   isStreaming?: boolean;
   isError?: boolean;
+  options?: Option[]; // For static decision tree buttons
   attachment?: {
     type: 'image';
     url: string; // Data URL for display

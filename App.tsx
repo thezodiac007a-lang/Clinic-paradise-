@@ -1,14 +1,13 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { createChatSession, sendMessageStream } from './services/geminiService';
 import { db } from './services/db';
-import { Message, Role, User, Theme } from './types';
+import { chatScript } from './data/script';
+import { Message, Role, User, Theme, Option } from './types';
 import { MessageBubble } from './components/MessageBubble';
 import { ChatInput } from './components/ChatInput';
 import { Auth } from './components/Auth';
 import { ThemeToggle } from './components/ThemeToggle';
 import { ProfileModal } from './components/ProfileModal';
-import { GenerateContentResponse, Chat } from '@google/genai';
 import { Activity, LogOut, Calendar, UserCircle } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -18,7 +17,9 @@ const App: React.FC = () => {
   const [theme, setTheme] = useState<Theme>('light');
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   
-  const chatSessionRef = useRef<Chat | null>(null);
+  // Track current position in the script
+  const [currentScriptId, setCurrentScriptId] = useState<string>('start');
+  
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Initialize Theme
@@ -53,7 +54,6 @@ const App: React.FC = () => {
   useEffect(() => {
     const initSession = async () => {
       if (user) {
-        chatSessionRef.current = createChatSession(user.name);
         
         // Load history from DB
         const savedMessages = await db.chats.getSession(user.id);
@@ -61,15 +61,17 @@ const App: React.FC = () => {
         if (savedMessages.length > 0) {
           setMessages(savedMessages);
         } else {
-          // Add an initial receptionist greeting if no history
+          // Initialize with start node
+          const startNode = chatScript['start'];
           const initialMsg: Message = {
             id: 'init-1',
             role: Role.MODEL,
-            content: `Hello ${user.name}, welcome back to City Health Specialists. I'm Clara. \n\nI can help you schedule appointments or provide detailed information about your prescriptions and medications. \n\nFeel free to upload a photo of your prescription!`,
+            content: startNode.text,
+            options: startNode.options,
             timestamp: Date.now(),
           };
           setMessages([initialMsg]);
-          // Save this initial state immediately
+          setCurrentScriptId('start');
           db.chats.saveSession(user.id, [initialMsg]);
         }
       }
@@ -78,7 +80,7 @@ const App: React.FC = () => {
     initSession();
   }, [user]);
 
-  // Auto-save chat history whenever messages change (but debounce slightly to avoid spamming writes)
+  // Auto-save chat history
   useEffect(() => {
     if (user && messages.length > 0) {
       const timeoutId = setTimeout(() => {
@@ -100,7 +102,6 @@ const App: React.FC = () => {
   const handleLogout = () => {
     setUser(null);
     setMessages([]);
-    chatSessionRef.current = null;
     localStorage.removeItem('medi_chat_current_user');
   };
 
@@ -113,95 +114,80 @@ const App: React.FC = () => {
     scrollToBottom();
   }, [messages]);
 
-  const handleSendMessage = async (content: string, image?: { base64: string, mimeType: string, url: string }) => {
-    if (!chatSessionRef.current) return;
-
+  // Handle choice selection or text input (if we matched it)
+  const processInput = async (inputText: string, nextId?: string) => {
     const userMessage: Message = {
       id: Date.now().toString(),
       role: Role.USER,
-      content,
+      content: inputText,
       timestamp: Date.now(),
-      attachment: image ? {
-        type: 'image',
-        url: image.url,
-        mimeType: image.mimeType,
-        base64: image.base64
-      } : undefined
     };
 
     setMessages((prev) => [...prev, userMessage]);
     setIsLoading(true);
 
-    try {
-      const responseId = (Date.now() + 1).toString();
-      const initialBotMessage: Message = {
-        id: responseId,
-        role: Role.MODEL,
-        content: '', 
-        timestamp: Date.now(),
-        isStreaming: true,
-      };
+    // Simulate "thinking" delay
+    await new Promise(resolve => setTimeout(resolve, 600));
 
-      setMessages((prev) => [...prev, initialBotMessage]);
-
-      const streamResult = await sendMessageStream(
-        chatSessionRef.current, 
-        content, 
-        image ? { base64: image.base64, mimeType: image.mimeType } : undefined
-      );
-      
-      let fullContent = '';
-
-      for await (const chunk of streamResult) {
-        const chunkContent = (chunk as GenerateContentResponse).text;
-        if (chunkContent) {
-          fullContent += chunkContent;
-          setMessages((prev) => 
-            prev.map((msg) => 
-              msg.id === responseId 
-                ? { ...msg, content: fullContent } 
-                : msg
-            )
-          );
+    // Determine response
+    let nextNode = nextId ? chatScript[nextId] : chatScript['unknown'];
+    
+    // If we didn't get an explicit nextId, try to find a match in the current node's options by text
+    if (!nextId && currentScriptId) {
+      const currentNode = chatScript[currentScriptId];
+      if (currentNode && currentNode.options) {
+        const match = currentNode.options.find(opt => opt.label.toLowerCase() === inputText.toLowerCase());
+        if (match) {
+          nextNode = chatScript[match.nextId];
         }
       }
-
-      setMessages((prev) => 
-        prev.map((msg) => 
-          msg.id === responseId 
-            ? { ...msg, isStreaming: false } 
-            : msg
-        )
-      );
-
-    } catch (error) {
-      console.error("Chat error:", error);
-      const errorMessage: Message = {
-        id: Date.now().toString(),
-        role: Role.MODEL,
-        content: "I'm sorry, I encountered a system error processing your request. Please try again.",
-        timestamp: Date.now(),
-        isError: true
-      };
-      setMessages((prev) => [...prev, errorMessage]);
-    } finally {
-      setIsLoading(false);
     }
+
+    // Default fallbacks if node missing
+    if (!nextNode) nextNode = chatScript['start'];
+
+    const botMessage: Message = {
+      id: (Date.now() + 1).toString(),
+      role: Role.MODEL,
+      content: nextNode.text,
+      options: nextNode.options,
+      timestamp: Date.now()
+    };
+
+    setMessages((prev) => [...prev, botMessage]);
+    setCurrentScriptId(nextNode.id);
+    setIsLoading(false);
+  };
+
+  const handleOptionClick = (option: Option) => {
+    if (isLoading) return;
+    processInput(option.label, option.nextId);
+  };
+
+  const handleSendMessage = (content: string, image?: any) => {
+    // If user types manually, we try to process it, but usually this chat relies on clicks.
+    // We treat manual input as text.
+    if (image) {
+      alert("Image upload is disabled in this version.");
+      return;
+    }
+    processInput(content);
   };
 
   const handleClearHistory = async () => {
     if (user) {
       await db.chats.clearSession(user.id);
       
-      // Reset Chat
-      chatSessionRef.current = createChatSession(user.name);
+      const startNode = chatScript['start'];
       const resetMsg: Message = {
         id: Date.now().toString(),
         role: Role.MODEL,
-        content: "Chat history cleared. How can I help you today?",
+        content: startNode.text,
+        options: startNode.options,
         timestamp: Date.now(),
       };
       setMessages([resetMsg]);
+      setCurrentScriptId('start');
       setIsProfileOpen(false);
     }
   };
@@ -211,7 +197,6 @@ const App: React.FC = () => {
     localStorage.setItem('medi_chat_current_user', JSON.stringify(updatedUser));
   };
 
-  // If no user, show Auth screen
   if (!user) {
     return (
       <>
@@ -244,7 +229,7 @@ const App: React.FC = () => {
             </div>
             <div className="hidden sm:block">
               <h1 className="font-semibold text-slate-900 dark:text-white text-lg leading-tight">City Health</h1>
-              <p className="text-xs text-slate-500 dark:text-slate-400">Reception & Pharmacy Desk</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Reception Desk (Automated)</p>
             </div>
           </div>
           
@@ -281,12 +266,16 @@ const App: React.FC = () => {
           {messages.length === 0 && (
             <div className="flex-1 flex flex-col items-center justify-center text-slate-400 dark:text-slate-600 opacity-60">
               <Calendar size={48} className="mb-4" />
-              <p>Checking appointment slots...</p>
+              <p>Loading assistant...</p>
             </div>
           )}
           
           {messages.map((msg) => (
-            <MessageBubble key={msg.id} message={msg} />
+            <MessageBubble 
+              key={msg.id} 
+              message={msg} 
+              onOptionClick={handleOptionClick} 
+            />
           ))}
           
           <div ref={messagesEndRef} className="h-4" />

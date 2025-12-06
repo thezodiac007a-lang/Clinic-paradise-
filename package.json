@@ -1,5 +1,5 @@
 {
-  "name": "gemini-flash-chat",
+  "name": "medischedule-static-chat",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -10,12 +10,12 @@
   },
   "dependencies": {
     "lucide-react": "^0.555.0",
-    "@google/genai": "^1.30.0",
     "react-markdown": "^10.1.0",
     "react-dom": "^19.2.0",
     "react": "^19.2.0",
     "@vitejs/plugin-react": "^5.1.1",
-    "vite": "^7.2.6"
+    "vite": "^7.2.6",
+    "@google/genai": "^1.31.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

@@ -1,18 +1,19 @@
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
-import { Message, Role } from '../types';
+import { Message, Role, Option } from '../types';
 import { User, Stethoscope, AlertCircle } from 'lucide-react';
 
 interface MessageBubbleProps {
   message: Message;
+  onOptionClick?: (option: Option) => void;
 }
 
-export const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
+export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onOptionClick }) => {
   const isUser = message.role === Role.USER;
   const isError = message.isError;
 
   return (
-    <div className={`flex w-full mb-6 ${isUser ? 'justify-end' : 'justify-start'}`}>
+    <div className={`flex w-full mb-6 flex-col ${isUser ? 'items-end' : 'items-start'}`}>
       <div className={`flex max-w-[85%] md:max-w-[75%] gap-3 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
         
         {/* Avatar */}
@@ -60,6 +61,21 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
           </span>
         </div>
       </div>
+
+      {/* Options / Quick Replies */}
+      {!isUser && message.options && message.options.length > 0 && (
+         <div className="flex flex-wrap gap-2 mt-3 ml-11 max-w-[85%]">
+            {message.options.map((opt, idx) => (
+              <button
+                key={idx}
+                onClick={() => onOptionClick && onOptionClick(opt)}
+                className="bg-white dark:bg-slate-800 border border-primary-200 dark:border-primary-900/50 text-primary-700 dark:text-primary-300 px-4 py-2 rounded-full text-sm font-medium hover:bg-primary-50 dark:hover:bg-primary-900/30 transition-colors shadow-sm"
+              >
+                {opt.label}
+              </button>
+            ))}
+         </div>
+      )}
     </div>
   );
 };
