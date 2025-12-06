@@ -1,6 +1,8 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { db } from './services/db';
+import { auth } from './services/firebase'; // Import auth for listener
+import { onAuthStateChanged } from 'firebase/auth';
 import { chatScript } from './data/script';
 import { Message, Role, User, Theme, Option } from './types';
 import { MessageBubble } from './components/MessageBubble';
@@ -8,12 +10,13 @@ import { ChatInput } from './components/ChatInput';
 import { Auth } from './components/Auth';
 import { ThemeToggle } from './components/ThemeToggle';
 import { ProfileModal } from './components/ProfileModal';
-import { Activity, LogOut, Calendar, UserCircle } from 'lucide-react';
+import { Activity, LogOut, Calendar, UserCircle, Loader2 } from 'lucide-react';
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isAuthChecking, setIsAuthChecking] = useState(true); // New state for auth check
   const [theme, setTheme] = useState<Theme>('light');
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   
@@ -41,13 +44,35 @@ const App: React.FC = () => {
     localStorage.setItem('theme', theme);
   }, [theme]);
 
-  // Check for logged in user
+  // Firebase Auth Listener
   useEffect(() => {
-    const savedUser = localStorage.getItem('medi_chat_current_user');
-    if (savedUser) {
-      const parsedUser = JSON.parse(savedUser);
-      setUser(parsedUser);
-    }
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        try {
+          // Fetch full user profile from Firestore
+          const userData = await db.users.getUser(firebaseUser.uid);
+          if (userData) {
+            setUser(userData);
+          } else {
+            // Should verify this case, but for now just set minimal user
+             setUser({
+               id: firebaseUser.uid,
+               email: firebaseUser.email || '',
+               name: firebaseUser.displayName || 'User',
+               createdAt: Date.now(),
+               lastLogin: Date.now()
+             });
+          }
+        } catch (e) {
+          console.error("Failed to fetch user data", e);
+        }
+      } else {
+        setUser(null);
+      }
+      setIsAuthChecking(false);
+    });
+
+    return () => unsubscribe();
   }, []);
 
   // Initialize chat session & load history when user is logged in
@@ -60,6 +85,11 @@ const App: React.FC = () => {
         
         if (savedMessages.length > 0) {
           setMessages(savedMessages);
+          // Try to restore script state based on last message options
+          const lastMsg = savedMessages[savedMessages.length - 1];
+          // This is a heuristic: if we stored the script ID we'd be better off, 
+          // but for now we assume 'start' if we can't determine.
+          // In a real app we'd save currentScriptId to DB too.
         } else {
           // Initialize with start node
           const startNode = chatScript['start'];
@@ -95,14 +125,14 @@ const App: React.FC = () => {
   };
 
   const handleLogin = (loggedInUser: User) => {
+    // State update handled by onAuthStateChanged
     setUser(loggedInUser);
-    localStorage.setItem('medi_chat_current_user', JSON.stringify(loggedInUser));
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await db.users.logout();
     setUser(null);
     setMessages([]);
-    localStorage.removeItem('medi_chat_current_user');
   };
 
   // Scroll to bottom whenever messages change
@@ -194,8 +224,16 @@ const App: React.FC = () => {
 
   const handleUpdateProfile = (updatedUser: User) => {
     setUser(updatedUser);
-    localStorage.setItem('medi_chat_current_user', JSON.stringify(updatedUser));
   };
+
+  if (isAuthChecking) {
+    return (
+      <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-50 dark:bg-slate-950 text-slate-400">
+        <Loader2 className="animate-spin mb-4" size={32} />
+        <p>Connecting to secure server...</p>
+      </div>
+    );
+  }
 
   if (!user) {
     return (
